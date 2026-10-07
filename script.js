@@ -1,21 +1,11 @@
 /* =====================================================
    CFG Simplifier — Universal Input Edition
    Handles ANY valid CFG input.
-
-   Pipeline:
-     1. Parse
-     2. Remove Null (ε) productions
-     3. Remove Unit productions
-     4. Remove Useless Symbols (non-generating, then unreachable)
-
-   Two run modes:
-     - Run Direct  → all stages instantly
-     - Step by Step → auto-play, one stage every N ms
+   Two modes: Run Direct (instant) and Step by Step (auto-play).
    ===================================================== */
 
 const EPSILON_TOKENS = new Set(["ε", "eps", "epsilon", "e", "@", "λ", "lambda"]);
 
-/* Auto-play state */
 let stepMode = false;
 let stepIndex = 0;
 let stepSnapshots = [];
@@ -29,9 +19,7 @@ const SPEEDS = [
   { label: "Fast",   delay: 550  }
 ];
 
-/* =====================================================
-   TAB SWITCHING
-   ===================================================== */
+/* ---------- Tab switching ---------- */
 document.querySelectorAll(".tab").forEach(tab => {
   tab.addEventListener("click", () => {
     document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
@@ -41,9 +29,7 @@ document.querySelectorAll(".tab").forEach(tab => {
   });
 });
 
-/* =====================================================
-   EXAMPLE GRAMMARS
-   ===================================================== */
+/* ---------- Examples ---------- */
 const EXAMPLES = {
   null: `S -> A B | ε
 A -> a | ε
@@ -67,15 +53,11 @@ document.querySelectorAll(".chip[data-example]").forEach(chip => {
   });
 });
 
-/* =====================================================
-   TOKENIZER — handles multi-char nonterminals
-   ===================================================== */
+/* ---------- Tokenizer ---------- */
 function tokenizeRHS(rhsRaw, knownLHS) {
   const cleaned = rhsRaw.trim();
   if (!cleaned) return [];
-  if (/\s/.test(cleaned)) {
-    return cleaned.split(/\s+/).filter(Boolean);
-  }
+  if (/\s/.test(cleaned)) return cleaned.split(/\s+/).filter(Boolean);
   const tokens = [];
   let i = 0;
   while (i < cleaned.length) {
@@ -89,28 +71,17 @@ function tokenizeRHS(rhsRaw, knownLHS) {
         break;
       }
     }
-    if (!matched) {
-      tokens.push(cleaned[i]);
-      i++;
-    }
+    if (!matched) { tokens.push(cleaned[i]); i++; }
   }
   return tokens;
 }
 
-/* =====================================================
-   PARSING
-   ===================================================== */
+/* ---------- Parse ---------- */
 function parseGrammar(text) {
   const grammar = {};
   const errors = [];
-  const lines = text
-    .split("\n")
-    .map(l => l.replace(/#.*$/, "").trim())
-    .filter(Boolean);
-
-  if (lines.length === 0) {
-    return { grammar, errors: ["Input is empty."] };
-  }
+  const lines = text.split("\n").map(l => l.replace(/#.*$/, "").trim()).filter(Boolean);
+  if (lines.length === 0) return { grammar, errors: ["Input is empty."] };
 
   const lhsNames = new Set();
   for (const line of lines) {
@@ -121,23 +92,15 @@ function parseGrammar(text) {
   }
 
   for (const line of lines) {
-    const arrowMatch = line.match(/(-?>|::=|→)/);
-    if (!arrowMatch) {
-      errors.push(`No arrow found: "${line}"`);
-      continue;
-    }
-    const arrowIdx = line.search(/(-?>|::=|→)/);
-    const arrowLen = arrowMatch[0].length;
-    const lhs = line.slice(0, arrowIdx).trim();
-    const rhsRaw = line.slice(arrowIdx + arrowLen).trim();
-
-    if (!lhs) {
-      errors.push(`Missing LHS in: "${line}"`);
-      continue;
-    }
+    const m = line.match(/(-?>|::=|→)/);
+    if (!m) { errors.push(`No arrow found: "${line}"`); continue; }
+    const idx = line.search(/(-?>|::=|→)/);
+    const len = m[0].length;
+    const lhs = line.slice(0, idx).trim();
+    const rhsRaw = line.slice(idx + len).trim();
+    if (!lhs) { errors.push(`Missing LHS in: "${line}"`); continue; }
 
     const alts = rhsRaw.split("|").map(s => s.trim());
-
     if (!grammar[lhs]) grammar[lhs] = [];
     for (const alt of alts) {
       if (alt === "" || EPSILON_TOKENS.has(alt.toLowerCase())) {
@@ -145,9 +108,7 @@ function parseGrammar(text) {
       } else {
         const tokens = tokenizeRHS(alt, lhsNames);
         const normalized = tokens.join(" ");
-        if (!grammar[lhs].includes(normalized)) {
-          grammar[lhs].push(normalized);
-        }
+        if (!grammar[lhs].includes(normalized)) grammar[lhs].push(normalized);
       }
     }
   }
@@ -159,9 +120,7 @@ function parseGrammar(text) {
   return { grammar, errors };
 }
 
-/* =====================================================
-   HELPERS
-   ===================================================== */
+/* ---------- Helpers ---------- */
 function countProductions(g) {
   return Object.values(g).reduce((n, r) => n + r.length, 0);
 }
@@ -179,9 +138,7 @@ function isEpsilonRHS(rhs) {
          (parts.length === 1 && EPSILON_TOKENS.has(parts[0].toLowerCase()));
 }
 
-/* =====================================================
-   STEP 1 — NULLABLE VARIABLES
-   ===================================================== */
+/* ---------- Nullable ---------- */
 function findNullable(grammar, steps) {
   const nullable = new Set();
   let changed = true;
@@ -209,9 +166,7 @@ function findNullable(grammar, steps) {
   return nullable;
 }
 
-/* =====================================================
-   STEP 2 — REMOVE NULL PRODUCTIONS
-   ===================================================== */
+/* ---------- Remove Null ---------- */
 function removeNullProductions(grammar, steps) {
   const nullable = findNullable(grammar, steps);
   const newGrammar = {};
@@ -249,13 +204,10 @@ function removeNullProductions(grammar, steps) {
   return { grammar: newGrammar, nullable };
 }
 
-/* =====================================================
-   STEP 3 — UNIT PAIRS
-   ===================================================== */
+/* ---------- Unit Pairs ---------- */
 function findUnitPairs(grammar) {
   const units = {};
   for (const lhs of Object.keys(grammar)) units[lhs] = new Set([lhs]);
-
   let changed = true;
   while (changed) {
     changed = false;
@@ -265,10 +217,7 @@ function findUnitPairs(grammar) {
         if (parts.length === 1 && isNonTerminal(parts[0], grammar)) {
           const target = parts[0];
           for (const u of units[target]) {
-            if (!units[lhs].has(u)) {
-              units[lhs].add(u);
-              changed = true;
-            }
+            if (!units[lhs].has(u)) { units[lhs].add(u); changed = true; }
           }
         }
       }
@@ -277,9 +226,7 @@ function findUnitPairs(grammar) {
   return units;
 }
 
-/* =====================================================
-   STEP 4 — REMOVE UNIT PRODUCTIONS
-   ===================================================== */
+/* ---------- Remove Unit ---------- */
 function removeUnitProductions(grammar, steps) {
   const unitPairs = findUnitPairs(grammar);
   const newGrammar = {};
@@ -305,41 +252,26 @@ function removeUnitProductions(grammar, steps) {
   return { grammar: newGrammar, unitPairs };
 }
 
-/* =====================================================
-   STEP 5 — FIND GENERATING VARIABLES
-   ===================================================== */
+/* ---------- Generating ---------- */
 function findGenerating(grammar) {
   const generating = new Set();
   let changed = true;
-
   while (changed) {
     changed = false;
     for (const [lhs, rhsList] of Object.entries(grammar)) {
       if (generating.has(lhs)) continue;
       for (const rhs of rhsList) {
-        if (isEpsilonRHS(rhs)) {
-          generating.add(lhs);
-          changed = true;
-          break;
-        }
+        if (isEpsilonRHS(rhs)) { generating.add(lhs); changed = true; break; }
         const parts = rhs.split(/\s+/).filter(Boolean);
-        const allGenerating = parts.every(p =>
-          !isNonTerminal(p, grammar) || generating.has(p)
-        );
-        if (parts.length > 0 && allGenerating) {
-          generating.add(lhs);
-          changed = true;
-          break;
-        }
+        const allOK = parts.every(p => !isNonTerminal(p, grammar) || generating.has(p));
+        if (parts.length > 0 && allOK) { generating.add(lhs); changed = true; break; }
       }
     }
   }
   return generating;
 }
 
-/* =====================================================
-   STEP 6 — FIND REACHABLE VARIABLES
-   ===================================================== */
+/* ---------- Reachable ---------- */
 function findReachable(grammar, startSymbol) {
   const reachable = new Set([startSymbol]);
   let changed = true;
@@ -361,13 +293,10 @@ function findReachable(grammar, startSymbol) {
   return reachable;
 }
 
-/* =====================================================
-   STEP 7 — REMOVE USELESS SYMBOLS
-   ===================================================== */
+/* ---------- Remove Useless ---------- */
 function removeUselessSymbols(grammar, steps) {
   const startSymbol = Object.keys(grammar)[0];
 
-  /* 7a. Remove non-generating */
   const generating = findGenerating(grammar);
   const nonGenerating = Object.keys(grammar).filter(v => !generating.has(v));
 
@@ -377,9 +306,7 @@ function removeUselessSymbols(grammar, steps) {
     const newRHS = rhsList.filter(rhs => {
       if (isEpsilonRHS(rhs)) return true;
       const parts = rhs.split(/\s+/).filter(Boolean);
-      return parts.every(p =>
-        !isNonTerminal(p, grammar) || generating.has(p)
-      );
+      return parts.every(p => !isNonTerminal(p, grammar) || generating.has(p));
     });
     if (newRHS.length > 0) g1[lhs] = newRHS;
   }
@@ -391,7 +318,6 @@ function removeUselessSymbols(grammar, steps) {
     });
   }
 
-  /* 7b. Remove unreachable */
   const reachable = findReachable(g1, startSymbol);
   const unreachable = Object.keys(g1).filter(v => !reachable.has(v));
 
@@ -415,18 +341,10 @@ function removeUselessSymbols(grammar, steps) {
     });
   }
 
-  return {
-    grammar: finalGrammar,
-    nonGenerating,
-    unreachable,
-    generating,
-    reachable
-  };
+  return { grammar: finalGrammar, nonGenerating, unreachable, generating, reachable };
 }
 
-/* =====================================================
-   RENDERING
-   ===================================================== */
+/* ---------- Rendering ---------- */
 function renderGrammar(grammar, containerId) {
   const el = document.getElementById(containerId);
   if (!el) return;
@@ -441,10 +359,7 @@ function renderGrammar(grammar, containerId) {
 
 function renderLog(steps) {
   const el = document.getElementById("log");
-  if (!steps.length) {
-    el.innerHTML = `<div class="log-empty">No steps yet.</div>`;
-    return;
-  }
+  if (!steps.length) { el.innerHTML = `<div class="log-empty">No steps yet.</div>`; return; }
   el.innerHTML = steps.map((s, i) => {
     let cls = "";
     if (s.phase === "Unit") cls = "unit";
@@ -453,8 +368,7 @@ function renderLog(steps) {
       <div class="log-item" style="animation-delay:${i * 0.04}s">
         <span class="phase ${cls}">${s.phase}</span>
         <div class="desc">${s.desc}</div>
-      </div>
-    `;
+      </div>`;
   }).join("");
   el.scrollTop = el.scrollHeight;
 }
@@ -486,16 +400,13 @@ function animateNumber(el, target) {
   function tick(now) {
     const t = Math.min(1, (now - t0) / duration);
     const eased = 1 - Math.pow(1 - t, 3);
-    const val = Math.round(start + (target - start) * eased);
-    el.textContent = val;
+    el.textContent = Math.round(start + (target - start) * eased);
     if (t < 1) requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
 }
 
-/* =====================================================
-   DIRECT RUN
-   ===================================================== */
+/* ---------- Direct Run ---------- */
 function run() {
   clearTimeout(stepTimer);
   stepMode = false;
@@ -582,9 +493,7 @@ function run() {
   launchConfetti();
 }
 
-/* =====================================================
-   AUTO-PLAY STEP MODE
-   ===================================================== */
+/* ---------- Step Mode ---------- */
 const STAGE_ORDER = [
   { id: "stage-parse",   out: "out-parse",   label: "Parse" },
   { id: "stage-null",    out: "out-null",    label: "Remove Null (ε) Productions" },
@@ -662,7 +571,6 @@ function beginStepMode() {
   updateStepCounter();
   setStepStatus("Running…", "running");
   injectProgressBar();
-
   stepTimer = setTimeout(playNextStage, 350);
 }
 
@@ -679,8 +587,7 @@ function injectProgressBar() {
 function updateProgress() {
   const fill = document.getElementById("stepProgressFill");
   if (!fill) return;
-  const pct = (stepIndex / stepSnapshots.length) * 100;
-  fill.style.width = pct + "%";
+  fill.style.width = ((stepIndex / stepSnapshots.length) * 100) + "%";
 }
 
 function playNextStage() {
@@ -693,7 +600,6 @@ function playNextStage() {
     const el = document.getElementById(s.id);
     if (el) el.classList.remove("inspect");
   });
-
   const stageEl = document.getElementById(snap.stageId);
   if (stageEl) stageEl.classList.add("inspect");
 
@@ -730,10 +636,7 @@ function playNextStage() {
   STAGE_ORDER.forEach((s, i) => {
     if (i < stepIndex - 1) {
       const el = document.getElementById(s.id);
-      if (el) {
-        el.classList.remove("inspect");
-        el.classList.add("done");
-      }
+      if (el) { el.classList.remove("inspect"); el.classList.add("done"); }
     }
   });
 
@@ -747,13 +650,9 @@ function playNextStage() {
 function completeStepMode() {
   stepMode = false;
   setStepStatus("Complete ✓", "done");
-
   STAGE_ORDER.forEach(s => {
     const el = document.getElementById(s.id);
-    if (el) {
-      el.classList.remove("inspect");
-      el.classList.add("done");
-    }
+    if (el) { el.classList.remove("inspect"); el.classList.add("done"); }
   });
 
   const finalGrammar    = stepSnapshots[stepSnapshots.length - 1].grammar;
@@ -772,12 +671,8 @@ function completeStepMode() {
 }
 
 function skipToEnd() {
-  if (!stepMode && stepIndex === 0) {
-    beginStepMode();
-    return;
-  }
+  if (!stepMode && stepIndex === 0) { beginStepMode(); return; }
   clearTimeout(stepTimer);
-
   while (stepIndex < stepSnapshots.length) {
     const snap = stepSnapshots[stepIndex];
     STAGE_ORDER.forEach(s => {
@@ -790,15 +685,11 @@ function skipToEnd() {
     renderGrammar(snap.grammar, snap.outId);
     appendLogEntries(snap.steps, snap.meta.kind);
 
-    if (snap.meta.kind === "null") {
-      renderPills("nullableBox", [...snap.meta.nullable]);
-    }
+    if (snap.meta.kind === "null") renderPills("nullableBox", [...snap.meta.nullable]);
     if (snap.meta.kind === "unit") {
-      renderPills(
-        "unitBox",
+      renderPills("unitBox",
         Object.entries(snap.meta.unitPairs).map(([a, b]) => `${a}→{${[...b].join(",")}}`),
-        "amber"
-      );
+        "amber");
     }
     if (snap.meta.kind === "useless") {
       const items = [
@@ -819,11 +710,9 @@ function exitStepMode() {
   stepMode = false;
   stepSnapshots = [];
   stepIndex = 0;
-
   document.getElementById("stepControls").hidden = true;
   const bar = document.getElementById("stepProgress");
   if (bar) bar.remove();
-
   STAGE_ORDER.forEach(s => {
     const el = document.getElementById(s.id);
     if (el) el.classList.remove("inspect", "done");
@@ -846,38 +735,30 @@ function setStepStatus(text, cls) {
 function appendLogEntries(entries, kind) {
   const log = document.getElementById("log");
   if (!log) return;
-
   if (kind === "parse") {
     log.innerHTML = `<div class="log-empty">Grammar parsed.</div>`;
     return;
   }
-
   if (!entries || entries.length === 0) {
     const note = document.createElement("div");
     note.className = "log-item";
-    note.style.animationDelay = "0s";
     note.innerHTML = `
       <span class="phase ${kind === "unit" ? "unit" : kind === "useless" ? "useless" : ""}">
         ${kind === "null" ? "NULL" : kind === "unit" ? "UNIT" : kind === "useless" ? "USELESS" : "STAGE"}
       </span>
-      <div class="desc">No changes needed at this stage.</div>
-    `;
+      <div class="desc">No changes needed at this stage.</div>`;
     log.appendChild(note);
     log.scrollTop = log.scrollHeight;
     return;
   }
-
   const frag = document.createElement("div");
   entries.forEach((s, i) => {
-    const cls =
-      s.phase === "Unit" ? "unit" :
-      s.phase === "Useless" ? "useless" : "";
+    const cls = s.phase === "Unit" ? "unit" : s.phase === "Useless" ? "useless" : "";
     frag.innerHTML += `
       <div class="log-item" style="animation-delay:${i * 0.04}s">
         <span class="phase ${cls}">${s.phase}</span>
         <div class="desc">${s.desc}</div>
-      </div>
-    `;
+      </div>`;
   });
   log.appendChild(frag);
   log.scrollTop = log.scrollHeight;
@@ -899,15 +780,12 @@ function cycleSpeed() {
   if (btn) btn.textContent = `Speed: ${SPEEDS[speedIndex].label}`;
 }
 
-/* =====================================================
-   RESET
-   ===================================================== */
+/* ---------- Reset ---------- */
 function resetOutputs() {
   clearTimeout(stepTimer);
   stepMode = false;
   stepSnapshots = [];
   stepIndex = 0;
-
   const bar = document.getElementById("stepProgress");
   if (bar) bar.remove();
   const ctrl = document.getElementById("stepControls");
@@ -917,34 +795,25 @@ function resetOutputs() {
     const el = document.getElementById(id);
     if (el) el.innerHTML = `<em class="placeholder">Waiting…</em>`;
   });
-
   document.getElementById("log").innerHTML =
     `<div class="log-empty">No steps yet. Hit <b>Run Direct</b> or <b>Step by Step</b>.</div>`;
-
   renderPills("nullableBox", []);
   renderPills("unitBox", []);
   renderPills("uselessBox", []);
-
   ["stat-prod", "stat-null", "stat-unit", "stat-removed"].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.textContent = "0";
   });
-
   ["stage-parse", "stage-null", "stage-unit", "stage-useless", "stage-final"].forEach(id => {
     setStageState(id, "");
   });
 }
 
-/* =====================================================
-   COPY / DOWNLOAD
-   ===================================================== */
+/* ---------- Copy / Download ---------- */
 function copyFinal() {
   const el = document.getElementById("out-final");
   const text = el.innerText.trim();
-  if (!text || text.includes("Waiting")) {
-    alert("Run simplification first.");
-    return;
-  }
+  if (!text || text.includes("Waiting")) { alert("Run simplification first."); return; }
   navigator.clipboard.writeText(text).then(() => {
     const btn = document.getElementById("btn-copy");
     const old = btn.textContent;
@@ -956,10 +825,7 @@ function copyFinal() {
 function downloadFinal() {
   const el = document.getElementById("out-final");
   const text = el.innerText.trim();
-  if (!text || text.includes("Waiting")) {
-    alert("Run simplification first.");
-    return;
-  }
+  if (!text || text.includes("Waiting")) { alert("Run simplification first."); return; }
   const blob = new Blob([text], { type: "text/plain" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -970,9 +836,7 @@ function downloadFinal() {
   URL.revokeObjectURL(a.href);
 }
 
-/* =====================================================
-   CONFETTI
-   ===================================================== */
+/* ---------- Confetti ---------- */
 function launchConfetti() {
   const canvas = document.getElementById("confetti");
   if (!canvas) return;
@@ -995,19 +859,14 @@ function launchConfetti() {
       life: 1
     });
   }
-
   function tick() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     let alive = false;
     for (const p of pieces) {
       if (p.life <= 0) continue;
       alive = true;
-      p.x += p.vx;
-      p.y += p.vy;
-      p.vy += 0.35;
-      p.vx *= 0.99;
-      p.rot += p.vr;
-      p.life -= 0.012;
+      p.x += p.vx; p.y += p.vy; p.vy += 0.35; p.vx *= 0.99;
+      p.rot += p.vr; p.life -= 0.012;
       ctx.save();
       ctx.globalAlpha = Math.max(0, p.life);
       ctx.translate(p.x, p.y);
@@ -1022,9 +881,7 @@ function launchConfetti() {
   tick();
 }
 
-/* =====================================================
-   CURSOR GLOW
-   ===================================================== */
+/* ---------- Cursor glow ---------- */
 const cursorGlow = document.getElementById("cursorGlow");
 if (cursorGlow) {
   let mx = 0, my = 0, gx = 0, gy = 0;
@@ -1032,21 +889,17 @@ if (cursorGlow) {
     mx = e.clientX; my = e.clientY;
     cursorGlow.style.opacity = "1";
   });
-  document.addEventListener("mouseleave", () => {
-    cursorGlow.style.opacity = "0";
-  });
+  document.addEventListener("mouseleave", () => { cursorGlow.style.opacity = "0"; });
   (function loop() {
     gx += (mx - gx) * 0.12;
     gy += (my - gy) * 0.12;
     cursorGlow.style.left = gx + "px";
-    cursorGlow.style.top = gy + "px";
+    cursorGlow.style.top  = gy + "px";
     requestAnimationFrame(loop);
   })();
 }
 
-/* =====================================================
-   RIPPLE
-   ===================================================== */
+/* ---------- Ripple ---------- */
 document.querySelectorAll(".ripple").forEach(btn => {
   btn.addEventListener("mousedown", e => {
     const r = btn.getBoundingClientRect();
@@ -1055,9 +908,7 @@ document.querySelectorAll(".ripple").forEach(btn => {
   });
 });
 
-/* =====================================================
-   EVENT WIRING
-   ===================================================== */
+/* ---------- Event wiring ---------- */
 document.getElementById("btn-run").addEventListener("click", run);
 document.getElementById("btn-step").addEventListener("click", beginStepMode);
 document.getElementById("btn-reset").addEventListener("click", resetOutputs);

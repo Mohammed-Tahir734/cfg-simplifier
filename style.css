@@ -39,7 +39,6 @@ html, body {
   overflow-x: hidden;
 }
 
-/* Animated background grid */
 body::before {
   content: "";
   position: fixed;
@@ -88,9 +87,6 @@ body > * { position: relative; z-index: 1; }
   z-index: 999;
 }
 
-/* =====================================================
-   TOP BAR
-   ===================================================== */
 .topbar {
   display: flex;
   justify-content: space-between;
@@ -160,9 +156,6 @@ body > * { position: relative; z-index: 1; }
   box-shadow: 0 0 20px rgba(20, 184, 166, .3);
 }
 
-/* =====================================================
-   VIEWS
-   ===================================================== */
 .view { display: none; padding: 24px 28px 60px; }
 .view.active {
   display: block;
@@ -173,9 +166,6 @@ body > * { position: relative; z-index: 1; }
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* =====================================================
-   STUDIO GRID
-   ===================================================== */
 .studio-grid {
   display: grid;
   grid-template-columns: 340px 1fr 340px;
@@ -230,9 +220,6 @@ body > * { position: relative; z-index: 1; }
 }
 .panel h2.mt { margin-top: 24px; }
 
-/* =====================================================
-   INPUT
-   ===================================================== */
 .hint { font-size: 12px; color: var(--ink-soft); margin: 0 0 10px; }
 textarea {
   width: 100%;
@@ -319,9 +306,6 @@ textarea:focus {
   transform: translateY(-1px);
 }
 
-/* =====================================================
-   STATS
-   ===================================================== */
 .stats {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -355,9 +339,6 @@ textarea:focus {
   letter-spacing: .08em;
 }
 
-/* =====================================================
-   PIPELINE
-   ===================================================== */
 .pipeline-panel { position: relative; }
 
 .stage {
@@ -479,9 +460,6 @@ textarea:focus {
   100% { left: 100%; opacity: 0; }
 }
 
-/* =====================================================
-   STEP-BY-STEP CONTROLS
-   ===================================================== */
 .step-controls {
   display: flex;
   justify-content: space-between;
@@ -550,9 +528,6 @@ textarea:focus {
   .step-buttons { justify-content: center; }
 }
 
-/* =====================================================
-   LOG
-   ===================================================== */
 .log-list {
   max-height: 340px;
   overflow-y: auto;
@@ -605,9 +580,6 @@ textarea:focus {
 }
 .log-empty { color: var(--ink-soft); padding: 12px; font-style: italic; }
 
-/* =====================================================
-   PILLS
-   ===================================================== */
 .pill-box {
   display: flex;
   flex-wrap: wrap;
@@ -639,9 +611,6 @@ textarea:focus {
 }
 .muted { color: var(--ink-soft); font-style: italic; }
 
-/* =====================================================
-   THEORY & EXAMPLES
-   ===================================================== */
 .theory-wrap, .examples-wrap {
   max-width: 960px;
   margin: 0 auto;
@@ -701,9 +670,6 @@ code {
   font-size: 12.5px;
 }
 
-/* =====================================================
-   FOOTER
-   ===================================================== */
 .foot {
   display: flex;
   justify-content: space-between;
@@ -719,9 +685,6 @@ code {
   .foot { flex-direction: column; gap: 6px; text-align: center; }
 }
 
-/* =====================================================
-   PRODUCTION STAGGER ANIMATION
-   ===================================================== */
 .stage-body .prod {
   animation: prodIn .35s ease backwards;
 }
@@ -737,9 +700,6 @@ code {
 .stage-body .prod:nth-child(6) { animation-delay: .30s; }
 .stage-body .prod:nth-child(n+7) { animation-delay: .35s; }
 
-/* =====================================================
-   ACCESSIBILITY
-   ===================================================== */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: .01ms !important;
