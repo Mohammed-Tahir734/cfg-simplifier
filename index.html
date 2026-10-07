@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>CFG Simplifier · Null & Unit Production Removal</title>
+<title>CFG Simplifier · Null · Unit · Useless Production Removal</title>
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -49,24 +49,25 @@ B -> b</textarea>
         <span class="mini-label">Load:</span>
         <button class="chip" data-example="null">Null only</button>
         <button class="chip" data-example="unit">Unit only</button>
-        <button class="chip" data-example="both">Both</button>
+        <button class="chip" data-example="useless">Useless only</button>
+        <button class="chip" data-example="both">All combined</button>
       </div>
 
       <div class="stats">
         <div class="stat">
-          <span class="stat-num" id="stat-prod" data-count="0">0</span>
+          <span class="stat-num" id="stat-prod">0</span>
           <span class="stat-lbl">Productions</span>
         </div>
         <div class="stat">
-          <span class="stat-num" id="stat-null" data-count="0">0</span>
+          <span class="stat-num" id="stat-null">0</span>
           <span class="stat-lbl">Nullable</span>
         </div>
         <div class="stat">
-          <span class="stat-num" id="stat-unit" data-count="0">0</span>
+          <span class="stat-num" id="stat-unit">0</span>
           <span class="stat-lbl">Unit Pairs</span>
         </div>
         <div class="stat">
-          <span class="stat-num" id="stat-removed" data-count="0">0</span>
+          <span class="stat-num" id="stat-removed">0</span>
           <span class="stat-lbl">Removed</span>
         </div>
       </div>
@@ -115,6 +116,19 @@ B -> b</textarea>
 
       <div class="connector"><span class="flow"></span></div>
 
+      <div class="stage" id="stage-useless">
+        <div class="stage-head">
+          <span class="stage-dot"></span>
+          <h3>Remove Useless Symbols</h3>
+          <span class="stage-tag">step 3</span>
+        </div>
+        <div class="stage-body" id="out-useless">
+          <em class="placeholder">Waiting…</em>
+        </div>
+      </div>
+
+      <div class="connector"><span class="flow"></span></div>
+
       <div class="stage final" id="stage-final">
         <div class="stage-head">
           <span class="stage-dot"></span>
@@ -143,6 +157,9 @@ B -> b</textarea>
 
       <h2 class="mt">Unit Pairs</h2>
       <div id="unitBox" class="pill-box"><span class="muted">—</span></div>
+
+      <h2 class="mt">Useless Removed</h2>
+      <div id="uselessBox" class="pill-box"><span class="muted">—</span></div>
     </aside>
 
   </section>
@@ -167,7 +184,7 @@ B → ε</pre>
       <ol>
         <li>Find all nullable variables.</li>
         <li>For every production, add all combinations where nullable symbols are optionally dropped.</li>
-        <li>Delete <code>A → ε</code> (unless ε is in the language and <code>A</code> is start — special case).</li>
+        <li>Delete <code>A → ε</code> (unless ε ∈ L(G) and A is start).</li>
       </ol>
     </article>
 
@@ -184,6 +201,16 @@ B → ε</pre>
         <li>For each pair, add all non-unit productions of <code>B</code> to <code>A</code>.</li>
         <li>Delete all unit productions.</li>
       </ol>
+    </article>
+
+    <article class="theory-card">
+      <h3>Useless Symbols</h3>
+      <p>A variable is <b>useless</b> if it fails either test:</p>
+      <ul>
+        <li><b>Generating:</b> can derive some terminal string</li>
+        <li><b>Reachable:</b> has a path from start symbol S</li>
+      </ul>
+      <p>Remove <b>non-generating first</b>, then <b>unreachable</b>.</p>
     </article>
 
     <article class="theory-card">
@@ -229,7 +256,20 @@ B → b</pre>
     </article>
 
     <article class="ex-card">
-      <h3>Example C · Both</h3>
+      <h3>Example C · Useless Removal</h3>
+      <pre>Before:
+S → abS | abA | abB
+A → cd
+B → aB
+C → dc
+
+After:
+S → abS | abA
+A → cd</pre>
+    </article>
+
+    <article class="ex-card">
+      <h3>Example D · All Combined</h3>
       <pre>Before:
 S → A B | ε
 A → B

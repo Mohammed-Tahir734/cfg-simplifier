@@ -1,54 +1,24 @@
 /* =====================================================
    CFG Simplifier — Universal Input Edition
-   Handles ANY valid CFG input:
-     - ε, eps, epsilon, e, @, or empty
+   =====================================================
+
+   Pipeline:
+     1. Parse
+     2. Remove Null (ε) productions
+     3. Remove Unit productions
+     4. Remove Useless Symbols (non-generating, then unreachable)
+
+   Accepts any valid CFG input:
+     - ε, eps, epsilon, e, @, λ, lambda → treated as empty
      - | for alternatives
-     - Multi-character nonterminals
-     - Multi-line or single-line input
-     - Start symbol S (keeps S -> ε if S is nullable)
+     - ->, ::=, → all accepted as arrow
+     - Multi-character nonterminals (Expr, Stmt, Term)
+     - Single-line or multi-line
+     - Comments after #
+     - Spaces or no spaces between symbols
    ===================================================== */
 
-/* Symbols treated as ε */
 const EPSILON_TOKENS = new Set(["ε", "eps", "epsilon", "e", "@", "λ", "lambda"]);
-
-/* ---------- Utility: tokenize RHS ----------
-   Splits an RHS string into symbols. Symbols can be:
-     - single characters (terminals or non-terminals): a, b, S, A
-     - multi-character non-terminals if user uses them: Expr, Stmt
-   We detect non-terminals by checking if the token matches a known LHS.
-*/
-function tokenizeRHS(rhsRaw, knownLHS) {
-  // Normalize whitespace
-  const cleaned = rhsRaw.trim();
-  if (!cleaned) return [];
-
-  // If user separated symbols by spaces, honor that
-  if (/\s/.test(cleaned)) {
-    return cleaned.split(/\s+/).filter(Boolean);
-  }
-
-  // No spaces: try to greedily match known LHS names first
-  const tokens = [];
-  let i = 0;
-  while (i < cleaned.length) {
-    let matched = false;
-    // Try longest known LHS match first (multi-char nonterminals)
-    for (let len = Math.min(6, cleaned.length - i); len >= 1; len--) {
-      const chunk = cleaned.substr(i, len);
-      if (knownLHS.has(chunk)) {
-        tokens.push(chunk);
-        i += len;
-        matched = true;
-        break;
-      }
-    }
-    if (!matched) {
-      tokens.push(cleaned[i]);
-      i++;
-    }
-  }
-  return tokens;
-}
 
 /* =====================================================
    TAB SWITCHING
@@ -72,6 +42,10 @@ B -> b | ε`,
   unit: `S -> A | B
 A -> a
 B -> b`,
+  useless: `S -> abS | abA | abB
+A -> cd
+B -> aB
+C -> dc`,
   both: `S -> A B | ε
 A -> B
 B -> b | ε`
@@ -85,14 +59,48 @@ document.querySelectorAll(".chip[data-example]").forEach(chip => {
 });
 
 /* =====================================================
-   PARSING — accepts any reasonable CFG
+   TOKENIZER — handles multi-char nonterminals
+   ===================================================== */
+function tokenizeRHS(rhsRaw, knownLHS) {
+  const cleaned = rhsRaw.trim();
+  if (!cleaned) return [];
+
+  // If user separated symbols by spaces, honor that
+  if (/\s/.test(cleaned)) {
+    return cleaned.split(/\s+/).filter(Boolean);
+  }
+
+  // No spaces: greedily match known LHS names first
+  const tokens = [];
+  let i = 0;
+  while (i < cleaned.length) {
+    let matched = false;
+    for (let len = Math.min(6, cleaned.length - i); len >= 1; len--) {
+      const chunk = cleaned.substr(i, len);
+      if (knownLHS.has(chunk)) {
+        tokens.push(chunk);
+        i += len;
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) {
+      tokens.push(cleaned[i]);
+      i++;
+    }
+  }
+  return tokens;
+}
+
+/* =====================================================
+   PARSING
    ===================================================== */
 function parseGrammar(text) {
   const grammar = {};
   const errors = [];
   const lines = text
     .split("\n")
-    .map(l => l.replace(/#.*$/, "").trim()) // strip comments
+    .map(l => l.replace(/#.*$/, "").trim())
     .filter(Boolean);
 
   if (lines.length === 0) {
@@ -102,8 +110,6 @@ function parseGrammar(text) {
   // Pass 1: collect LHS names
   const lhsNames = new Set();
   for (const line of lines) {
-    const arrowMatch = line.match(/^(-?>|::=|→)/);
-    if (!arrowMatch) continue;
     const idx = line.search(/(-?>|::=|→)/);
     if (idx <= 0) continue;
     const lhs = line.slice(0, idx).trim();
@@ -127,16 +133,13 @@ function parseGrammar(text) {
       continue;
     }
 
-    // Alternatives separated by |
     const alts = rhsRaw.split("|").map(s => s.trim());
 
     if (!grammar[lhs]) grammar[lhs] = [];
     for (const alt of alts) {
-      // Detect epsilon
       if (alt === "" || EPSILON_TOKENS.has(alt.toLowerCase())) {
         if (!grammar[lhs].includes("ε")) grammar[lhs].push("ε");
       } else {
-        // Tokenize so we can re-join normalized later
         const tokens = tokenizeRHS(alt, lhsNames);
         const normalized = tokens.join(" ");
         if (!grammar[lhs].includes(normalized)) {
@@ -146,7 +149,6 @@ function parseGrammar(text) {
     }
   }
 
-  // Ensure every nonterminal has at least one production
   for (const lhs of lhsNames) {
     if (!grammar[lhs]) grammar[lhs] = ["ε"];
   }
@@ -199,7 +201,7 @@ function findNullable(grammar, steps) {
             });
             changed = true;
           }
-        } else if (parts.every(p => nullable.has(p))) {
+        } else if (parts.length > 0 && parts.every(p => nullable.has(p))) {
           if (!nullable.has(lhs)) {
             nullable.add(lhs);
             steps.push({
@@ -217,7 +219,7 @@ function findNullable(grammar, steps) {
 
 /* =====================================================
    STEP 2 — REMOVE NULL PRODUCTIONS
-   Keeps S -> ε if S is nullable (ε ∈ L(G))
+   Keeps S → ε if S is start symbol and nullable.
    ===================================================== */
 function removeNullProductions(grammar, steps) {
   const nullable = findNullable(grammar, steps);
@@ -231,7 +233,6 @@ function removeNullProductions(grammar, steps) {
       const parts = rhs.split(/\s+/).filter(Boolean);
 
       if (isEpsilonRHS(rhs)) {
-        // Keep S -> ε only if S is the start symbol (preserve ε ∈ L(G))
         if (lhs === startSymbol) {
           newRHS.add("ε");
           steps.push({
@@ -248,7 +249,6 @@ function removeNullProductions(grammar, steps) {
       }
 
       const n = parts.length;
-      // Generate all combinations by optionally dropping nullable symbols
       for (let mask = 0; mask < (1 << n); mask++) {
         const combo = parts.filter((sym, i) =>
           !(nullable.has(sym) && (mask & (1 << i)))
@@ -262,7 +262,7 @@ function removeNullProductions(grammar, steps) {
 
   steps.push({
     phase: "Null",
-    desc: `Nullable set = { ${[...nullable].join(", ") || "∅"} }. All ε-productions removed.`
+    desc: `Nullable set = { ${[...nullable].join(", ") || "∅"} }. All ε-productions processed.`
   });
 
   return { grammar: newGrammar, nullable };
@@ -313,12 +313,136 @@ function removeUnitProductions(grammar, steps) {
     if (newRHS.size > 0) newGrammar[lhs] = [...newRHS];
   }
 
+  const totalPairs = Object.values(unitPairs)
+    .reduce((n, s) => n + Math.max(0, s.size - 1), 0);
+
   steps.push({
     phase: "Unit",
-    desc: `Removed all unit productions. Unit pairs computed for ${Object.keys(unitPairs).length} variable(s).`
+    desc: `Removed all unit productions. ${totalPairs} unit pair(s) collapsed.`
   });
 
   return { grammar: newGrammar, unitPairs };
+}
+
+/* =====================================================
+   STEP 5 — FIND GENERATING VARIABLES
+   A variable is generating if it can derive a terminal string
+   ===================================================== */
+function findGenerating(grammar) {
+  const generating = new Set();
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+    for (const [lhs, rhsList] of Object.entries(grammar)) {
+      if (generating.has(lhs)) continue;
+      for (const rhs of rhsList) {
+        if (isEpsilonRHS(rhs)) {
+          generating.add(lhs);
+          changed = true;
+          break;
+        }
+        const parts = rhs.split(/\s+/).filter(Boolean);
+        const allGenerating = parts.every(p =>
+          !isNonTerminal(p, grammar) || generating.has(p)
+        );
+        if (parts.length > 0 && allGenerating) {
+          generating.add(lhs);
+          changed = true;
+          break;
+        }
+      }
+    }
+  }
+  return generating;
+}
+
+/* =====================================================
+   STEP 6 — FIND REACHABLE VARIABLES FROM START
+   ===================================================== */
+function findReachable(grammar, startSymbol) {
+  const reachable = new Set([startSymbol]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const A of [...reachable]) {
+      const rhsList = grammar[A] || [];
+      for (const rhs of rhsList) {
+        const parts = rhs.split(/\s+/).filter(Boolean);
+        for (const p of parts) {
+          if (isNonTerminal(p, grammar) && !reachable.has(p)) {
+            reachable.add(p);
+            changed = true;
+          }
+        }
+      }
+    }
+  }
+  return reachable;
+}
+
+/* =====================================================
+   STEP 7 — REMOVE USELESS SYMBOLS
+   (non-generating first, then unreachable)
+   ===================================================== */
+function removeUselessSymbols(grammar, steps) {
+  const startSymbol = Object.keys(grammar)[0];
+
+  /* --- 7a. Remove non-generating --- */
+  const generating = findGenerating(grammar);
+  const nonGenerating = Object.keys(grammar).filter(v => !generating.has(v));
+
+  let g1 = {};
+  for (const [lhs, rhsList] of Object.entries(grammar)) {
+    if (!generating.has(lhs)) continue;
+    const newRHS = rhsList.filter(rhs => {
+      if (isEpsilonRHS(rhs)) return true;
+      const parts = rhs.split(/\s+/).filter(Boolean);
+      return parts.every(p =>
+        !isNonTerminal(p, grammar) || generating.has(p)
+      );
+    });
+    if (newRHS.length > 0) g1[lhs] = newRHS;
+  }
+
+  if (nonGenerating.length > 0) {
+    steps.push({
+      phase: "Useless",
+      desc: `Non-generating removed: <code>{ ${nonGenerating.join(", ")} }</code> (cannot derive any terminal string)`
+    });
+  }
+
+  /* --- 7b. Remove unreachable from g1 --- */
+  const reachable = findReachable(g1, startSymbol);
+  const unreachable = Object.keys(g1).filter(v => !reachable.has(v));
+
+  const finalGrammar = {};
+  for (const [lhs, rhsList] of Object.entries(g1)) {
+    if (!reachable.has(lhs)) continue;
+    finalGrammar[lhs] = rhsList;
+  }
+
+  if (unreachable.length > 0) {
+    steps.push({
+      phase: "Useless",
+      desc: `Unreachable removed: <code>{ ${unreachable.join(", ")} }</code> (no path from start symbol)`
+    });
+  }
+
+  if (nonGenerating.length === 0 && unreachable.length === 0) {
+    steps.push({
+      phase: "Useless",
+      desc: `No useless symbols found — all variables are generating and reachable.`
+    });
+  }
+
+  return {
+    grammar: finalGrammar,
+    nonGenerating,
+    unreachable,
+    generating,
+    reachable
+  };
 }
 
 /* =====================================================
@@ -341,17 +465,23 @@ function renderLog(steps) {
     el.innerHTML = `<div class="log-empty">No steps yet.</div>`;
     return;
   }
-  el.innerHTML = steps.map((s, i) => `
-    <div class="log-item" style="animation-delay:${i * 0.04}s">
-      <span class="phase ${s.phase === "Unit" ? "unit" : ""}">${s.phase}</span>
-      <div class="desc">${s.desc}</div>
-    </div>
-  `).join("");
+  el.innerHTML = steps.map((s, i) => {
+    let cls = "";
+    if (s.phase === "Unit") cls = "unit";
+    else if (s.phase === "Useless") cls = "useless";
+    return `
+      <div class="log-item" style="animation-delay:${i * 0.04}s">
+        <span class="phase ${cls}">${s.phase}</span>
+        <div class="desc">${s.desc}</div>
+      </div>
+    `;
+  }).join("");
   el.scrollTop = el.scrollHeight;
 }
 
 function renderPills(containerId, items, cls = "") {
   const el = document.getElementById(containerId);
+  if (!el) return;
   if (!items || items.length === 0) {
     el.innerHTML = `<span class="muted">—</span>`;
     return;
@@ -368,7 +498,6 @@ function setStageState(id, state) {
   if (state) el.classList.add(state);
 }
 
-/* Animated number counter */
 function animateNumber(el, target) {
   if (!el) return;
   const start = parseInt(el.textContent, 10) || 0;
@@ -392,7 +521,7 @@ function run() {
   const input = document.getElementById("grammarInput").value;
   const steps = [];
 
-  // ---- Parse ----
+  /* Stage 1 — Parse */
   setStageState("stage-parse", "active");
   const { grammar: original, errors } = parseGrammar(input);
   setStageState("stage-parse", "done");
@@ -400,13 +529,15 @@ function run() {
   if (errors.length > 0) {
     document.getElementById("out-parse").innerHTML =
       `<span style="color:var(--danger)">⚠ ${errors.join("<br>⚠ ")}</span>`;
-    document.getElementById("out-null").innerHTML = `<em class="placeholder">—</em>`;
-    document.getElementById("out-unit").innerHTML = `<em class="placeholder">—</em>`;
-    document.getElementById("out-final").innerHTML = `<em class="placeholder">—</em>`;
+    ["out-null", "out-unit", "out-useless", "out-final"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = `<em class="placeholder">—</em>`;
+    });
     document.getElementById("log").innerHTML =
       `<div class="log-empty" style="color:var(--danger)">Fix input errors and try again.</div>`;
-    document.getElementById("nullableBox").innerHTML = `<span class="muted">—</span>`;
-    document.getElementById("unitBox").innerHTML = `<span class="muted">—</span>`;
+    renderPills("nullableBox", []);
+    renderPills("unitBox", []);
+    renderPills("uselessBox", []);
     animateNumber(document.getElementById("stat-prod"), 0);
     animateNumber(document.getElementById("stat-null"), 0);
     animateNumber(document.getElementById("stat-unit"), 0);
@@ -423,33 +554,49 @@ function run() {
   renderGrammar(original, "out-parse");
   const originalCount = countProductions(original);
 
-  // ---- Null removal ----
+  /* Stage 2 — Null removal */
   setStageState("stage-null", "active");
   const { grammar: afterNull, nullable } = removeNullProductions(original, steps);
   renderGrammar(afterNull, "out-null");
   setStageState("stage-null", "done");
 
-  // ---- Unit removal ----
+  /* Stage 3 — Unit removal */
   setStageState("stage-unit", "active");
-  const { grammar: finalGrammar, unitPairs } = removeUnitProductions(afterNull, steps);
-  renderGrammar(finalGrammar, "out-unit");
+  const { grammar: afterUnit, unitPairs } = removeUnitProductions(afterNull, steps);
+  renderGrammar(afterUnit, "out-unit");
   setStageState("stage-unit", "done");
 
-  // ---- Final ----
+  /* Stage 4 — Useless removal */
+  setStageState("stage-useless", "active");
+  const {
+    grammar: finalGrammar,
+    nonGenerating,
+    unreachable
+  } = removeUselessSymbols(afterUnit, steps);
+  renderGrammar(finalGrammar, "out-useless");
+  setStageState("stage-useless", "done");
+
+  /* Stage 5 — Final */
   setStageState("stage-final", "active");
   renderGrammar(finalGrammar, "out-final");
   setStageState("stage-final", "done");
 
-  // ---- Log + Pills ----
+  /* Log + Pills */
   renderLog(steps);
+
   renderPills("nullableBox", [...nullable]);
   renderPills(
     "unitBox",
     Object.entries(unitPairs).map(([a, b]) => `${a}→{${[...b].join(",")}}`),
     "amber"
   );
+  const uselessItems = [
+    ...nonGenerating.map(v => `${v} (non-generating)`),
+    ...unreachable.map(v => `${v} (unreachable)`)
+  ];
+  renderPills("uselessBox", uselessItems, "amber");
 
-  // ---- Stats ----
+  /* Stats */
   const finalCount = countProductions(finalGrammar);
   animateNumber(document.getElementById("stat-prod"), finalCount);
   animateNumber(document.getElementById("stat-null"), nullable.size);
@@ -457,7 +604,6 @@ function run() {
   animateNumber(document.getElementById("stat-removed"),
     Math.max(0, originalCount - finalCount));
 
-  // ---- Confetti ----
   launchConfetti();
 }
 
@@ -465,19 +611,20 @@ function run() {
    RESET
    ===================================================== */
 function resetOutputs() {
-  ["out-parse", "out-null", "out-unit", "out-final"].forEach(id => {
+  ["out-parse", "out-null", "out-unit", "out-useless", "out-final"].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.innerHTML = `<em class="placeholder">Waiting…</em>`;
   });
   document.getElementById("log").innerHTML =
     `<div class="log-empty">No steps yet. Hit <b>Run Simplification</b>.</div>`;
-  document.getElementById("nullableBox").innerHTML = `<span class="muted">—</span>`;
-  document.getElementById("unitBox").innerHTML = `<span class="muted">—</span>`;
+  renderPills("nullableBox", []);
+  renderPills("unitBox", []);
+  renderPills("uselessBox", []);
   ["stat-prod", "stat-null", "stat-unit", "stat-removed"].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.textContent = "0";
   });
-  ["stage-parse", "stage-null", "stage-unit", "stage-final"].forEach(id => {
+  ["stage-parse", "stage-null", "stage-unit", "stage-useless", "stage-final"].forEach(id => {
     setStageState(id, "");
   });
 }
@@ -543,7 +690,6 @@ function launchConfetti() {
     });
   }
 
-  let raf;
   function tick() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     let alive = false;
@@ -565,10 +711,9 @@ function launchConfetti() {
       ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size);
       ctx.restore();
     }
-    if (alive) raf = requestAnimationFrame(tick);
+    if (alive) requestAnimationFrame(tick);
     else ctx.clearRect(0, 0, canvas.width, canvas.height);
   }
-  cancelAnimationFrame(raf);
   tick();
 }
 
@@ -613,7 +758,7 @@ document.getElementById("btn-reset").addEventListener("click", resetOutputs);
 document.getElementById("btn-copy").addEventListener("click", copyFinal);
 document.getElementById("btn-download").addEventListener("click", downloadFinal);
 
-/* Enter key inside textarea = run */
+/* Ctrl+Enter inside textarea = run */
 document.getElementById("grammarInput").addEventListener("keydown", e => {
   if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
     e.preventDefault();
@@ -624,7 +769,7 @@ document.getElementById("grammarInput").addEventListener("keydown", e => {
 /* Auto-run on load */
 window.addEventListener("DOMContentLoaded", run);
 
-/* Handle window resize for confetti canvas */
+/* Resize handler for confetti canvas */
 window.addEventListener("resize", () => {
   const canvas = document.getElementById("confetti");
   if (canvas) {
