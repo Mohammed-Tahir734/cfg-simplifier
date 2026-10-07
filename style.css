@@ -1,5 +1,5 @@
 /* =====================================================
-   CFG Simplifier — Animated Theme (Full)
+   CFG Simplifier — Animated Theme
    ===================================================== */
 
 :root {
@@ -19,6 +19,8 @@
   --teal-soft: rgba(20, 184, 166, .12);
   --danger: #f87171;
   --ok: #4ade80;
+  --purple: #8b5cf6;
+  --purple-2: #a78bfa;
   --mono: "JetBrains Mono", "Fira Code", ui-monospace, Menlo, Consolas, monospace;
   --sans: "Inter", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
 }
@@ -37,7 +39,7 @@ html, body {
   overflow-x: hidden;
 }
 
-/* ---------- Animated background grid ---------- */
+/* Animated background grid */
 body::before {
   content: "";
   position: fixed;
@@ -66,7 +68,6 @@ body::after {
 
 body > * { position: relative; z-index: 1; }
 
-/* ---------- Cursor glow ---------- */
 .cursor-glow {
   position: fixed;
   width: 400px;
@@ -80,7 +81,6 @@ body > * { position: relative; z-index: 1; }
   will-change: transform;
 }
 
-/* ---------- Confetti canvas ---------- */
 .confetti-canvas {
   position: fixed;
   inset: 0;
@@ -151,8 +151,6 @@ body > * { position: relative; z-index: 1; }
   color: var(--ink-soft);
   cursor: pointer;
   transition: all .25s ease;
-  position: relative;
-  overflow: hidden;
 }
 .tab:hover { color: var(--ink); border-color: var(--teal); }
 .tab.active {
@@ -276,6 +274,7 @@ textarea:focus {
 }
 .btn:hover { transform: translateY(-1px); border-color: var(--teal); }
 .btn:active { transform: translateY(0); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
 
 .btn.primary {
   background: linear-gradient(135deg, var(--teal), #0ea5a3);
@@ -290,7 +289,6 @@ textarea:focus {
 .btn.ghost { background: transparent; }
 .btn.small { padding: 6px 12px; font-size: 12px; }
 
-/* Ripple effect */
 .ripple::after {
   content: "";
   position: absolute;
@@ -378,6 +376,16 @@ textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft), 0 0 30px rgba(245, 158, 11, .15);
 }
+.stage.inspect {
+  border-color: var(--purple) !important;
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, .2), 0 0 30px rgba(139, 92, 246, .25) !important;
+  transform: scale(1.015);
+}
+.stage.inspect .stage-dot {
+  background: var(--purple-2);
+  box-shadow: 0 0 14px var(--purple-2);
+  animation: dotPulse 1s ease-in-out infinite;
+}
 .stage.final { background: linear-gradient(180deg, var(--panel-2), var(--panel)); }
 
 .stage-head {
@@ -440,7 +448,6 @@ textarea:focus {
   background: rgba(255, 255, 255, .02);
 }
 
-/* Connectors with flow animation */
 .connector {
   height: 26px;
   margin-left: 27px;
@@ -470,6 +477,77 @@ textarea:focus {
 @keyframes flowDown {
   0%   { left: 0; opacity: 1; }
   100% { left: 100%; opacity: 0; }
+}
+
+/* =====================================================
+   STEP-BY-STEP CONTROLS
+   ===================================================== */
+.step-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(139, 92, 246, .12), rgba(167, 139, 250, .08));
+  border: 1px solid var(--purple);
+  box-shadow: 0 0 20px rgba(139, 92, 246, .15);
+  animation: stepBarIn .35s ease;
+}
+@keyframes stepBarIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.step-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--ink);
+  font-family: var(--mono);
+}
+.step-badge {
+  background: var(--purple);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+#stepCounter { color: var(--purple-2); font-weight: 700; }
+
+.step-status {
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-family: var(--sans);
+  margin-left: 4px;
+  font-style: italic;
+}
+.step-status.running { color: var(--purple-2); }
+.step-status.done    { color: var(--ok); }
+
+.step-buttons { display: flex; gap: 8px; }
+
+.step-progress {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(139, 92, 246, .15);
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+.step-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--purple), var(--purple-2));
+  transition: width .35s ease;
+}
+
+@media (max-width: 780px) {
+  .step-controls { flex-direction: column; align-items: stretch; }
+  .step-buttons { justify-content: center; }
 }
 
 /* =====================================================
@@ -517,7 +595,7 @@ textarea:focus {
   font-weight: 700;
 }
 .log-item .phase.unit { background: var(--accent); }
-.log-item .phase.useless { background: #8b5cf6; color: #fff; }
+.log-item .phase.useless { background: var(--purple); color: #fff; }
 .log-item .desc { color: var(--ink-soft); line-height: 1.5; }
 .log-item code {
   color: var(--teal-2);

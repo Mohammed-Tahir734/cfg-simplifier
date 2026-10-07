@@ -1,6 +1,6 @@
 /* =====================================================
    CFG Simplifier — Universal Input Edition
-   =====================================================
+   Handles ANY valid CFG input.
 
    Pipeline:
      1. Parse
@@ -8,17 +8,26 @@
      3. Remove Unit productions
      4. Remove Useless Symbols (non-generating, then unreachable)
 
-   Accepts any valid CFG input:
-     - ε, eps, epsilon, e, @, λ, lambda → treated as empty
-     - | for alternatives
-     - ->, ::=, → all accepted as arrow
-     - Multi-character nonterminals (Expr, Stmt, Term)
-     - Single-line or multi-line
-     - Comments after #
-     - Spaces or no spaces between symbols
+   Two run modes:
+     - Run Direct  → all stages instantly
+     - Step by Step → auto-play, one stage every N ms
    ===================================================== */
 
 const EPSILON_TOKENS = new Set(["ε", "eps", "epsilon", "e", "@", "λ", "lambda"]);
+
+/* Auto-play state */
+let stepMode = false;
+let stepIndex = 0;
+let stepSnapshots = [];
+let stepTimer = null;
+let stepDelay = 1100;
+let speedIndex = 1;
+
+const SPEEDS = [
+  { label: "Slow",   delay: 1800 },
+  { label: "Normal", delay: 1100 },
+  { label: "Fast",   delay: 550  }
+];
 
 /* =====================================================
    TAB SWITCHING
@@ -64,13 +73,9 @@ document.querySelectorAll(".chip[data-example]").forEach(chip => {
 function tokenizeRHS(rhsRaw, knownLHS) {
   const cleaned = rhsRaw.trim();
   if (!cleaned) return [];
-
-  // If user separated symbols by spaces, honor that
   if (/\s/.test(cleaned)) {
     return cleaned.split(/\s+/).filter(Boolean);
   }
-
-  // No spaces: greedily match known LHS names first
   const tokens = [];
   let i = 0;
   while (i < cleaned.length) {
@@ -107,7 +112,6 @@ function parseGrammar(text) {
     return { grammar, errors: ["Input is empty."] };
   }
 
-  // Pass 1: collect LHS names
   const lhsNames = new Set();
   for (const line of lines) {
     const idx = line.search(/(-?>|::=|→)/);
@@ -116,7 +120,6 @@ function parseGrammar(text) {
     if (lhs) lhsNames.add(lhs);
   }
 
-  // Pass 2: parse productions
   for (const line of lines) {
     const arrowMatch = line.match(/(-?>|::=|→)/);
     if (!arrowMatch) {
@@ -162,16 +165,13 @@ function parseGrammar(text) {
 function countProductions(g) {
   return Object.values(g).reduce((n, r) => n + r.length, 0);
 }
-
 function isNonTerminal(sym, grammar) {
   return Object.prototype.hasOwnProperty.call(grammar, sym);
 }
-
 function isUnitProduction(rhs, grammar) {
   const parts = rhs.split(/\s+/).filter(Boolean);
   return parts.length === 1 && isNonTerminal(parts[0], grammar);
 }
-
 function isEpsilonRHS(rhs) {
   if (rhs === "ε") return true;
   const parts = rhs.split(/\s+/).filter(Boolean);
@@ -185,29 +185,21 @@ function isEpsilonRHS(rhs) {
 function findNullable(grammar, steps) {
   const nullable = new Set();
   let changed = true;
-
   while (changed) {
     changed = false;
     for (const [lhs, rhsList] of Object.entries(grammar)) {
       for (const rhs of rhsList) {
         const parts = rhs.split(/\s+/).filter(Boolean);
-
         if (isEpsilonRHS(rhs)) {
           if (!nullable.has(lhs)) {
             nullable.add(lhs);
-            steps.push({
-              phase: "Null",
-              desc: `<code>${lhs}</code> is nullable (has ε-production)`
-            });
+            steps.push({ phase: "Null", desc: `<code>${lhs}</code> is nullable (has ε-production)` });
             changed = true;
           }
         } else if (parts.length > 0 && parts.every(p => nullable.has(p))) {
           if (!nullable.has(lhs)) {
             nullable.add(lhs);
-            steps.push({
-              phase: "Null",
-              desc: `<code>${lhs}</code> is nullable (all symbols in <code>${rhs}</code> are nullable)`
-            });
+            steps.push({ phase: "Null", desc: `<code>${lhs}</code> is nullable (all symbols in <code>${rhs}</code> are nullable)` });
             changed = true;
           }
         }
@@ -219,7 +211,6 @@ function findNullable(grammar, steps) {
 
 /* =====================================================
    STEP 2 — REMOVE NULL PRODUCTIONS
-   Keeps S → ε if S is start symbol and nullable.
    ===================================================== */
 function removeNullProductions(grammar, steps) {
   const nullable = findNullable(grammar, steps);
@@ -228,26 +219,17 @@ function removeNullProductions(grammar, steps) {
 
   for (const [lhs, rhsList] of Object.entries(grammar)) {
     const newRHS = new Set();
-
     for (const rhs of rhsList) {
       const parts = rhs.split(/\s+/).filter(Boolean);
-
       if (isEpsilonRHS(rhs)) {
         if (lhs === startSymbol) {
           newRHS.add("ε");
-          steps.push({
-            phase: "Null",
-            desc: `Kept <code>${lhs} → ε</code> (start symbol, preserves ε ∈ L(G))`
-          });
+          steps.push({ phase: "Null", desc: `Kept <code>${lhs} → ε</code> (start symbol, preserves ε ∈ L(G))` });
         } else {
-          steps.push({
-            phase: "Null",
-            desc: `Dropped <code>${lhs} → ε</code>`
-          });
+          steps.push({ phase: "Null", desc: `Dropped <code>${lhs} → ε</code>` });
         }
         continue;
       }
-
       const n = parts.length;
       for (let mask = 0; mask < (1 << n); mask++) {
         const combo = parts.filter((sym, i) =>
@@ -256,7 +238,6 @@ function removeNullProductions(grammar, steps) {
         if (combo.length > 0) newRHS.add(combo.join(" "));
       }
     }
-
     if (newRHS.size > 0) newGrammar[lhs] = [...newRHS];
   }
 
@@ -326,7 +307,6 @@ function removeUnitProductions(grammar, steps) {
 
 /* =====================================================
    STEP 5 — FIND GENERATING VARIABLES
-   A variable is generating if it can derive a terminal string
    ===================================================== */
 function findGenerating(grammar) {
   const generating = new Set();
@@ -358,7 +338,7 @@ function findGenerating(grammar) {
 }
 
 /* =====================================================
-   STEP 6 — FIND REACHABLE VARIABLES FROM START
+   STEP 6 — FIND REACHABLE VARIABLES
    ===================================================== */
 function findReachable(grammar, startSymbol) {
   const reachable = new Set([startSymbol]);
@@ -383,12 +363,11 @@ function findReachable(grammar, startSymbol) {
 
 /* =====================================================
    STEP 7 — REMOVE USELESS SYMBOLS
-   (non-generating first, then unreachable)
    ===================================================== */
 function removeUselessSymbols(grammar, steps) {
   const startSymbol = Object.keys(grammar)[0];
 
-  /* --- 7a. Remove non-generating --- */
+  /* 7a. Remove non-generating */
   const generating = findGenerating(grammar);
   const nonGenerating = Object.keys(grammar).filter(v => !generating.has(v));
 
@@ -412,7 +391,7 @@ function removeUselessSymbols(grammar, steps) {
     });
   }
 
-  /* --- 7b. Remove unreachable from g1 --- */
+  /* 7b. Remove unreachable */
   const reachable = findReachable(g1, startSymbol);
   const unreachable = Object.keys(g1).filter(v => !reachable.has(v));
 
@@ -450,6 +429,7 @@ function removeUselessSymbols(grammar, steps) {
    ===================================================== */
 function renderGrammar(grammar, containerId) {
   const el = document.getElementById(containerId);
+  if (!el) return;
   if (!grammar || Object.keys(grammar).length === 0) {
     el.innerHTML = `<em class="placeholder">∅ (empty grammar)</em>`;
     return;
@@ -494,7 +474,7 @@ function renderPills(containerId, items, cls = "") {
 function setStageState(id, state) {
   const el = document.getElementById(id);
   if (!el) return;
-  el.classList.remove("active", "done");
+  el.classList.remove("active", "done", "inspect");
   if (state) el.classList.add(state);
 }
 
@@ -503,7 +483,6 @@ function animateNumber(el, target) {
   const start = parseInt(el.textContent, 10) || 0;
   const duration = 500;
   const t0 = performance.now();
-
   function tick(now) {
     const t = Math.min(1, (now - t0) / duration);
     const eased = 1 - Math.pow(1 - t, 3);
@@ -515,13 +494,19 @@ function animateNumber(el, target) {
 }
 
 /* =====================================================
-   MAIN PIPELINE
+   DIRECT RUN
    ===================================================== */
 function run() {
+  clearTimeout(stepTimer);
+  stepMode = false;
+  const ctrl = document.getElementById("stepControls");
+  if (ctrl) ctrl.hidden = true;
+  const bar = document.getElementById("stepProgress");
+  if (bar) bar.remove();
+
   const input = document.getElementById("grammarInput").value;
   const steps = [];
 
-  /* Stage 1 — Parse */
   setStageState("stage-parse", "active");
   const { grammar: original, errors } = parseGrammar(input);
   setStageState("stage-parse", "done");
@@ -554,36 +539,27 @@ function run() {
   renderGrammar(original, "out-parse");
   const originalCount = countProductions(original);
 
-  /* Stage 2 — Null removal */
   setStageState("stage-null", "active");
   const { grammar: afterNull, nullable } = removeNullProductions(original, steps);
   renderGrammar(afterNull, "out-null");
   setStageState("stage-null", "done");
 
-  /* Stage 3 — Unit removal */
   setStageState("stage-unit", "active");
   const { grammar: afterUnit, unitPairs } = removeUnitProductions(afterNull, steps);
   renderGrammar(afterUnit, "out-unit");
   setStageState("stage-unit", "done");
 
-  /* Stage 4 — Useless removal */
   setStageState("stage-useless", "active");
-  const {
-    grammar: finalGrammar,
-    nonGenerating,
-    unreachable
-  } = removeUselessSymbols(afterUnit, steps);
+  const { grammar: finalGrammar, nonGenerating, unreachable } =
+    removeUselessSymbols(afterUnit, steps);
   renderGrammar(finalGrammar, "out-useless");
   setStageState("stage-useless", "done");
 
-  /* Stage 5 — Final */
   setStageState("stage-final", "active");
   renderGrammar(finalGrammar, "out-final");
   setStageState("stage-final", "done");
 
-  /* Log + Pills */
   renderLog(steps);
-
   renderPills("nullableBox", [...nullable]);
   renderPills(
     "unitBox",
@@ -596,7 +572,6 @@ function run() {
   ];
   renderPills("uselessBox", uselessItems, "amber");
 
-  /* Stats */
   const finalCount = countProductions(finalGrammar);
   animateNumber(document.getElementById("stat-prod"), finalCount);
   animateNumber(document.getElementById("stat-null"), nullable.size);
@@ -608,22 +583,353 @@ function run() {
 }
 
 /* =====================================================
-   RESET
+   AUTO-PLAY STEP MODE
    ===================================================== */
-function resetOutputs() {
-  ["out-parse", "out-null", "out-unit", "out-useless", "out-final"].forEach(id => {
-    const el = document.getElementById(id);
+const STAGE_ORDER = [
+  { id: "stage-parse",   out: "out-parse",   label: "Parse" },
+  { id: "stage-null",    out: "out-null",    label: "Remove Null (ε) Productions" },
+  { id: "stage-unit",    out: "out-unit",    label: "Remove Unit Productions" },
+  { id: "stage-useless", out: "out-useless", label: "Remove Useless Symbols" },
+  { id: "stage-final",   out: "out-final",   label: "Simplified Grammar" }
+];
+
+function beginStepMode() {
+  clearTimeout(stepTimer);
+  const input = document.getElementById("grammarInput").value;
+  stepSnapshots = [];
+  stepIndex = 0;
+  stepMode = true;
+
+  const { grammar: original, errors } = parseGrammar(input);
+  if (errors.length > 0) return renderStepError(errors);
+  if (Object.keys(original).length === 0) return renderStepError(["No productions found."]);
+
+  stepSnapshots.push({
+    stageId: "stage-parse", outId: "out-parse",
+    grammar: original, steps: [], meta: { kind: "parse" }
+  });
+
+  const s1 = [];
+  const { grammar: afterNull, nullable } =
+    removeNullProductions(JSON.parse(JSON.stringify(original)), s1);
+  stepSnapshots.push({
+    stageId: "stage-null", outId: "out-null",
+    grammar: afterNull, steps: s1, meta: { kind: "null", nullable }
+  });
+
+  const s2 = [];
+  const { grammar: afterUnit, unitPairs } =
+    removeUnitProductions(JSON.parse(JSON.stringify(afterNull)), s2);
+  stepSnapshots.push({
+    stageId: "stage-unit", outId: "out-unit",
+    grammar: afterUnit, steps: s2, meta: { kind: "unit", unitPairs }
+  });
+
+  const s3 = [];
+  const { grammar: afterUseless, nonGenerating, unreachable } =
+    removeUselessSymbols(JSON.parse(JSON.stringify(afterUnit)), s3);
+  stepSnapshots.push({
+    stageId: "stage-useless", outId: "out-useless",
+    grammar: afterUseless, steps: s3,
+    meta: { kind: "useless", nonGenerating, unreachable }
+  });
+
+  stepSnapshots.push({
+    stageId: "stage-final", outId: "out-final",
+    grammar: afterUseless, steps: [], meta: { kind: "final" }
+  });
+
+  STAGE_ORDER.forEach(s => setStageState(s.id, ""));
+  STAGE_ORDER.forEach(s => {
+    const el = document.getElementById(s.out);
     if (el) el.innerHTML = `<em class="placeholder">Waiting…</em>`;
   });
   document.getElementById("log").innerHTML =
-    `<div class="log-empty">No steps yet. Hit <b>Run Simplification</b>.</div>`;
+    `<div class="log-empty">Auto-play starting…</div>`;
   renderPills("nullableBox", []);
   renderPills("unitBox", []);
   renderPills("uselessBox", []);
+
   ["stat-prod", "stat-null", "stat-unit", "stat-removed"].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.textContent = "0";
   });
+
+  const skipBtn = document.getElementById("btn-finish");
+  if (skipBtn) skipBtn.disabled = false;
+
+  document.getElementById("stepControls").hidden = false;
+  updateStepCounter();
+  setStepStatus("Running…", "running");
+  injectProgressBar();
+
+  stepTimer = setTimeout(playNextStage, 350);
+}
+
+function injectProgressBar() {
+  if (document.getElementById("stepProgress")) return;
+  const controls = document.getElementById("stepControls");
+  const bar = document.createElement("div");
+  bar.id = "stepProgress";
+  bar.className = "step-progress";
+  bar.innerHTML = `<div class="step-progress-fill" id="stepProgressFill"></div>`;
+  controls.parentNode.insertBefore(bar, controls.nextSibling);
+}
+
+function updateProgress() {
+  const fill = document.getElementById("stepProgressFill");
+  if (!fill) return;
+  const pct = (stepIndex / stepSnapshots.length) * 100;
+  fill.style.width = pct + "%";
+}
+
+function playNextStage() {
+  if (!stepMode) return;
+  if (stepIndex >= stepSnapshots.length) return;
+
+  const snap = stepSnapshots[stepIndex];
+
+  STAGE_ORDER.forEach(s => {
+    const el = document.getElementById(s.id);
+    if (el) el.classList.remove("inspect");
+  });
+
+  const stageEl = document.getElementById(snap.stageId);
+  if (stageEl) stageEl.classList.add("inspect");
+
+  renderGrammar(snap.grammar, snap.outId);
+  appendLogEntries(snap.steps, snap.meta.kind);
+
+  if (snap.meta.kind === "null") {
+    renderPills("nullableBox", [...snap.meta.nullable]);
+    animateNumber(document.getElementById("stat-null"), snap.meta.nullable.size);
+  }
+  if (snap.meta.kind === "unit") {
+    renderPills(
+      "unitBox",
+      Object.entries(snap.meta.unitPairs).map(([a, b]) => `${a}→{${[...b].join(",")}}`),
+      "amber"
+    );
+    animateNumber(
+      document.getElementById("stat-unit"),
+      Object.keys(snap.meta.unitPairs).length
+    );
+  }
+  if (snap.meta.kind === "useless") {
+    const items = [
+      ...snap.meta.nonGenerating.map(v => `${v} (non-generating)`),
+      ...snap.meta.unreachable.map(v => `${v} (unreachable)`)
+    ];
+    renderPills("uselessBox", items, "amber");
+  }
+
+  stepIndex++;
+  updateStepCounter();
+  updateProgress();
+
+  STAGE_ORDER.forEach((s, i) => {
+    if (i < stepIndex - 1) {
+      const el = document.getElementById(s.id);
+      if (el) {
+        el.classList.remove("inspect");
+        el.classList.add("done");
+      }
+    }
+  });
+
+  if (stepIndex < stepSnapshots.length) {
+    stepTimer = setTimeout(playNextStage, stepDelay);
+  } else {
+    completeStepMode();
+  }
+}
+
+function completeStepMode() {
+  stepMode = false;
+  setStepStatus("Complete ✓", "done");
+
+  STAGE_ORDER.forEach(s => {
+    const el = document.getElementById(s.id);
+    if (el) {
+      el.classList.remove("inspect");
+      el.classList.add("done");
+    }
+  });
+
+  const finalGrammar    = stepSnapshots[stepSnapshots.length - 1].grammar;
+  const originalGrammar = stepSnapshots[0].grammar;
+  const finalCount      = countProductions(finalGrammar);
+  const originalCount   = countProductions(originalGrammar);
+
+  animateNumber(document.getElementById("stat-prod"), finalCount);
+  animateNumber(document.getElementById("stat-removed"),
+    Math.max(0, originalCount - finalCount));
+
+  const skipBtn = document.getElementById("btn-finish");
+  if (skipBtn) skipBtn.disabled = true;
+
+  launchConfetti();
+}
+
+function skipToEnd() {
+  if (!stepMode && stepIndex === 0) {
+    beginStepMode();
+    return;
+  }
+  clearTimeout(stepTimer);
+
+  while (stepIndex < stepSnapshots.length) {
+    const snap = stepSnapshots[stepIndex];
+    STAGE_ORDER.forEach(s => {
+      const el = document.getElementById(s.id);
+      if (el) el.classList.remove("inspect");
+    });
+    const stageEl = document.getElementById(snap.stageId);
+    if (stageEl) stageEl.classList.add("done");
+
+    renderGrammar(snap.grammar, snap.outId);
+    appendLogEntries(snap.steps, snap.meta.kind);
+
+    if (snap.meta.kind === "null") {
+      renderPills("nullableBox", [...snap.meta.nullable]);
+    }
+    if (snap.meta.kind === "unit") {
+      renderPills(
+        "unitBox",
+        Object.entries(snap.meta.unitPairs).map(([a, b]) => `${a}→{${[...b].join(",")}}`),
+        "amber"
+      );
+    }
+    if (snap.meta.kind === "useless") {
+      const items = [
+        ...snap.meta.nonGenerating.map(v => `${v} (non-generating)`),
+        ...snap.meta.unreachable.map(v => `${v} (unreachable)`)
+      ];
+      renderPills("uselessBox", items, "amber");
+    }
+    stepIndex++;
+  }
+  updateStepCounter();
+  updateProgress();
+  completeStepMode();
+}
+
+function exitStepMode() {
+  clearTimeout(stepTimer);
+  stepMode = false;
+  stepSnapshots = [];
+  stepIndex = 0;
+
+  document.getElementById("stepControls").hidden = true;
+  const bar = document.getElementById("stepProgress");
+  if (bar) bar.remove();
+
+  STAGE_ORDER.forEach(s => {
+    const el = document.getElementById(s.id);
+    if (el) el.classList.remove("inspect", "done");
+  });
+  resetOutputs();
+}
+
+function updateStepCounter() {
+  const el = document.getElementById("stepCounter");
+  if (el) el.textContent = `Stage ${Math.min(stepIndex, stepSnapshots.length)} / ${stepSnapshots.length}`;
+}
+
+function setStepStatus(text, cls) {
+  const el = document.getElementById("stepStatus");
+  if (!el) return;
+  el.textContent = text;
+  el.className = "step-status" + (cls ? " " + cls : "");
+}
+
+function appendLogEntries(entries, kind) {
+  const log = document.getElementById("log");
+  if (!log) return;
+
+  if (kind === "parse") {
+    log.innerHTML = `<div class="log-empty">Grammar parsed.</div>`;
+    return;
+  }
+
+  if (!entries || entries.length === 0) {
+    const note = document.createElement("div");
+    note.className = "log-item";
+    note.style.animationDelay = "0s";
+    note.innerHTML = `
+      <span class="phase ${kind === "unit" ? "unit" : kind === "useless" ? "useless" : ""}">
+        ${kind === "null" ? "NULL" : kind === "unit" ? "UNIT" : kind === "useless" ? "USELESS" : "STAGE"}
+      </span>
+      <div class="desc">No changes needed at this stage.</div>
+    `;
+    log.appendChild(note);
+    log.scrollTop = log.scrollHeight;
+    return;
+  }
+
+  const frag = document.createElement("div");
+  entries.forEach((s, i) => {
+    const cls =
+      s.phase === "Unit" ? "unit" :
+      s.phase === "Useless" ? "useless" : "";
+    frag.innerHTML += `
+      <div class="log-item" style="animation-delay:${i * 0.04}s">
+        <span class="phase ${cls}">${s.phase}</span>
+        <div class="desc">${s.desc}</div>
+      </div>
+    `;
+  });
+  log.appendChild(frag);
+  log.scrollTop = log.scrollHeight;
+}
+
+function renderStepError(errors) {
+  document.getElementById("out-parse").innerHTML =
+    `<span style="color:var(--danger)">⚠ ${errors.join("<br>⚠ ")}</span>`;
+  document.getElementById("log").innerHTML =
+    `<div class="log-empty" style="color:var(--danger)">Fix input errors and try again.</div>`;
+  document.getElementById("stepControls").hidden = true;
+  stepMode = false;
+}
+
+function cycleSpeed() {
+  speedIndex = (speedIndex + 1) % SPEEDS.length;
+  stepDelay = SPEEDS[speedIndex].delay;
+  const btn = document.getElementById("btn-speed");
+  if (btn) btn.textContent = `Speed: ${SPEEDS[speedIndex].label}`;
+}
+
+/* =====================================================
+   RESET
+   ===================================================== */
+function resetOutputs() {
+  clearTimeout(stepTimer);
+  stepMode = false;
+  stepSnapshots = [];
+  stepIndex = 0;
+
+  const bar = document.getElementById("stepProgress");
+  if (bar) bar.remove();
+  const ctrl = document.getElementById("stepControls");
+  if (ctrl) ctrl.hidden = true;
+
+  ["out-parse", "out-null", "out-unit", "out-useless", "out-final"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = `<em class="placeholder">Waiting…</em>`;
+  });
+
+  document.getElementById("log").innerHTML =
+    `<div class="log-empty">No steps yet. Hit <b>Run Direct</b> or <b>Step by Step</b>.</div>`;
+
+  renderPills("nullableBox", []);
+  renderPills("unitBox", []);
+  renderPills("uselessBox", []);
+
+  ["stat-prod", "stat-null", "stat-unit", "stat-removed"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = "0";
+  });
+
   ["stage-parse", "stage-null", "stage-unit", "stage-useless", "stage-final"].forEach(id => {
     setStageState(id, "");
   });
@@ -674,7 +980,7 @@ function launchConfetti() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
 
-  const colors = ["#14b8a6", "#f59e0b", "#fbbf24", "#2dd4bf", "#4ade80"];
+  const colors = ["#14b8a6", "#f59e0b", "#fbbf24", "#2dd4bf", "#4ade80", "#a78bfa"];
   const pieces = [];
   for (let i = 0; i < 70; i++) {
     pieces.push({
@@ -702,7 +1008,6 @@ function launchConfetti() {
       p.vx *= 0.99;
       p.rot += p.vr;
       p.life -= 0.012;
-
       ctx.save();
       ctx.globalAlpha = Math.max(0, p.life);
       ctx.translate(p.x, p.y);
@@ -754,11 +1059,14 @@ document.querySelectorAll(".ripple").forEach(btn => {
    EVENT WIRING
    ===================================================== */
 document.getElementById("btn-run").addEventListener("click", run);
+document.getElementById("btn-step").addEventListener("click", beginStepMode);
 document.getElementById("btn-reset").addEventListener("click", resetOutputs);
 document.getElementById("btn-copy").addEventListener("click", copyFinal);
 document.getElementById("btn-download").addEventListener("click", downloadFinal);
+document.getElementById("btn-finish").addEventListener("click", skipToEnd);
+document.getElementById("btn-stop").addEventListener("click", exitStepMode);
+document.getElementById("btn-speed").addEventListener("click", cycleSpeed);
 
-/* Ctrl+Enter inside textarea = run */
 document.getElementById("grammarInput").addEventListener("keydown", e => {
   if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
     e.preventDefault();
@@ -766,10 +1074,8 @@ document.getElementById("grammarInput").addEventListener("keydown", e => {
   }
 });
 
-/* Auto-run on load */
 window.addEventListener("DOMContentLoaded", run);
 
-/* Resize handler for confetti canvas */
 window.addEventListener("resize", () => {
   const canvas = document.getElementById("confetti");
   if (canvas) {

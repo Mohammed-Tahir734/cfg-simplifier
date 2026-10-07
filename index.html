@@ -39,9 +39,8 @@ A -> a | ε
 B -> b</textarea>
 
       <div class="btn-row">
-        <button id="btn-run" class="btn primary ripple">
-          <span>Run Simplification</span>
-        </button>
+        <button id="btn-run" class="btn primary ripple">▶ Run Direct</button>
+        <button id="btn-step" class="btn ripple" style="background:linear-gradient(135deg,#8b5cf6,#a78bfa);border-color:transparent;color:#0e1116;font-weight:700">⏭ Step by Step</button>
         <button id="btn-reset" class="btn ghost ripple">Reset</button>
       </div>
 
@@ -73,9 +72,22 @@ B -> b</textarea>
       </div>
     </aside>
 
-    <!-- CENTER: PIPELINE STAGES -->
+    <!-- CENTER: PIPELINE PANEL -->
     <section class="panel pipeline-panel">
       <h2><span class="num">2</span> Simplification Pipeline</h2>
+
+      <div id="stepControls" class="step-controls" hidden>
+        <div class="step-info">
+          <span class="step-badge">AUTO-PLAY</span>
+          <span id="stepCounter">Stage 0 / 5</span>
+          <span id="stepStatus" class="step-status">Ready…</span>
+        </div>
+        <div class="step-buttons">
+          <button id="btn-speed" class="btn small ripple">Speed: Normal</button>
+          <button id="btn-finish" class="btn small primary ripple">⏭ Skip to End</button>
+          <button id="btn-stop" class="btn small ghost ripple">✕ Stop</button>
+        </div>
+      </div>
 
       <div class="stage" id="stage-parse">
         <div class="stage-head">
@@ -145,11 +157,11 @@ B -> b</textarea>
       </div>
     </section>
 
-    <!-- RIGHT: LOG / EXPLANATION -->
+    <!-- RIGHT: LOG PANEL -->
     <aside class="panel log-panel">
       <h2><span class="num">3</span> Step Log</h2>
       <div id="log" class="log-list">
-        <div class="log-empty">No steps yet. Hit <b>Run Simplification</b>.</div>
+        <div class="log-empty">No steps yet. Hit <b>Run Direct</b> or <b>Step by Step</b>.</div>
       </div>
 
       <h2 class="mt">Nullable Variables</h2>
