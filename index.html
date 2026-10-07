@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CFG Simplifier · Null & Unit Production Removal</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div class="cursor-glow" id="cursorGlow"></div>
+<canvas id="confetti" class="confetti-canvas"></canvas>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="logo-mark">λ</span>
+    <div>
+      <h1>CFG Simplifier</h1>
+      <p>Theory of Computation · Micro Project</p>
+    </div>
+  </div>
+  <nav class="tabs">
+    <button class="tab active" data-view="studio">Studio</button>
+    <button class="tab" data-view="theory">Theory</button>
+    <button class="tab" data-view="examples">Examples</button>
+  </nav>
+</header>
+
+<!-- ============== STUDIO VIEW ============== -->
+<main id="view-studio" class="view active">
+  <section class="studio-grid">
+
+    <!-- LEFT: INPUT PANEL -->
+    <aside class="panel input-panel">
+      <h2><span class="num">1</span> Input Grammar</h2>
+      <p class="hint">One production per line. Use <code>|</code> for alternatives, <code>ε</code> for empty.</p>
+      <textarea id="grammarInput" spellcheck="false">S -> A B | ε
+A -> a | ε
+B -> b</textarea>
+
+      <div class="btn-row">
+        <button id="btn-run" class="btn primary ripple">
+          <span>Run Simplification</span>
+        </button>
+        <button id="btn-reset" class="btn ghost ripple">Reset</button>
+      </div>
+
+      <div class="btn-row small">
+        <span class="mini-label">Load:</span>
+        <button class="chip" data-example="null">Null only</button>
+        <button class="chip" data-example="unit">Unit only</button>
+        <button class="chip" data-example="both">Both</button>
+      </div>
+
+      <div class="stats">
+        <div class="stat">
+          <span class="stat-num" id="stat-prod" data-count="0">0</span>
+          <span class="stat-lbl">Productions</span>
+        </div>
+        <div class="stat">
+          <span class="stat-num" id="stat-null" data-count="0">0</span>
+          <span class="stat-lbl">Nullable</span>
+        </div>
+        <div class="stat">
+          <span class="stat-num" id="stat-unit" data-count="0">0</span>
+          <span class="stat-lbl">Unit Pairs</span>
+        </div>
+        <div class="stat">
+          <span class="stat-num" id="stat-removed" data-count="0">0</span>
+          <span class="stat-lbl">Removed</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- CENTER: PIPELINE STAGES -->
+    <section class="panel pipeline-panel">
+      <h2><span class="num">2</span> Simplification Pipeline</h2>
+
+      <div class="stage" id="stage-parse">
+        <div class="stage-head">
+          <span class="stage-dot"></span>
+          <h3>Parse</h3>
+          <span class="stage-tag">input</span>
+        </div>
+        <div class="stage-body" id="out-parse">
+          <em class="placeholder">Run to parse the grammar.</em>
+        </div>
+      </div>
+
+      <div class="connector"><span class="flow"></span></div>
+
+      <div class="stage" id="stage-null">
+        <div class="stage-head">
+          <span class="stage-dot"></span>
+          <h3>Remove Null (ε) Productions</h3>
+          <span class="stage-tag">step 1</span>
+        </div>
+        <div class="stage-body" id="out-null">
+          <em class="placeholder">Waiting…</em>
+        </div>
+      </div>
+
+      <div class="connector"><span class="flow"></span></div>
+
+      <div class="stage" id="stage-unit">
+        <div class="stage-head">
+          <span class="stage-dot"></span>
+          <h3>Remove Unit Productions</h3>
+          <span class="stage-tag">step 2</span>
+        </div>
+        <div class="stage-body" id="out-unit">
+          <em class="placeholder">Waiting…</em>
+        </div>
+      </div>
+
+      <div class="connector"><span class="flow"></span></div>
+
+      <div class="stage final" id="stage-final">
+        <div class="stage-head">
+          <span class="stage-dot"></span>
+          <h3>Simplified Grammar</h3>
+          <span class="stage-tag">output</span>
+        </div>
+        <div class="stage-body" id="out-final">
+          <em class="placeholder">Waiting…</em>
+        </div>
+        <div class="stage-actions">
+          <button id="btn-copy" class="btn small ripple">Copy</button>
+          <button id="btn-download" class="btn small ghost ripple">Download .txt</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- RIGHT: LOG / EXPLANATION -->
+    <aside class="panel log-panel">
+      <h2><span class="num">3</span> Step Log</h2>
+      <div id="log" class="log-list">
+        <div class="log-empty">No steps yet. Hit <b>Run Simplification</b>.</div>
+      </div>
+
+      <h2 class="mt">Nullable Variables</h2>
+      <div id="nullableBox" class="pill-box"><span class="muted">—</span></div>
+
+      <h2 class="mt">Unit Pairs</h2>
+      <div id="unitBox" class="pill-box"><span class="muted">—</span></div>
+    </aside>
+
+  </section>
+</main>
+
+<!-- ============== THEORY VIEW ============== -->
+<main id="view-theory" class="view">
+  <section class="theory-wrap">
+    <h2>Theory Cheat-Sheet</h2>
+
+    <article class="theory-card">
+      <h3>Nullable Variable</h3>
+      <p>A variable <code>A</code> is <b>nullable</b> if it can derive <code>ε</code> in one or more steps.</p>
+      <pre>S → A B
+A → ε        ⇒  A is nullable, B is nullable (if B → ε), etc.
+B → ε</pre>
+      <p><b>Rule:</b> <code>A → X₁ X₂ … Xₙ</code> makes <code>A</code> nullable if every <code>Xᵢ</code> is nullable.</p>
+    </article>
+
+    <article class="theory-card">
+      <h3>Null Production Removal</h3>
+      <ol>
+        <li>Find all nullable variables.</li>
+        <li>For every production, add all combinations where nullable symbols are optionally dropped.</li>
+        <li>Delete <code>A → ε</code> (unless ε is in the language and <code>A</code> is start — special case).</li>
+      </ol>
+    </article>
+
+    <article class="theory-card">
+      <h3>Unit Production</h3>
+      <p>A production of the form <code>A → B</code> where both are non-terminals.</p>
+      <p><b>Unit pairs:</b> <code>(A, B)</code> such that <code>A ⇒* B</code> using only unit productions.</p>
+    </article>
+
+    <article class="theory-card">
+      <h3>Unit Production Removal</h3>
+      <ol>
+        <li>Compute all unit pairs <code>(A, B)</code>.</li>
+        <li>For each pair, add all non-unit productions of <code>B</code> to <code>A</code>.</li>
+        <li>Delete all unit productions.</li>
+      </ol>
+    </article>
+
+    <article class="theory-card">
+      <h3>Why Simplify?</h3>
+      <ul>
+        <li>Required before converting to <b>CNF</b> / <b>GNF</b>.</li>
+        <li>Removes redundant rules without changing the language.</li>
+        <li>Makes parsing and proofs easier.</li>
+      </ul>
+    </article>
+  </section>
+</main>
+
+<!-- ============== EXAMPLES VIEW ============== -->
+<main id="view-examples" class="view">
+  <section class="examples-wrap">
+    <h2>Worked Examples</h2>
+
+    <article class="ex-card">
+      <h3>Example A · Null Removal</h3>
+      <pre>Before:
+S → A B
+A → a | ε
+B → b | ε
+
+After:
+S → A B | A | B
+A → a
+B → b</pre>
+    </article>
+
+    <article class="ex-card">
+      <h3>Example B · Unit Removal</h3>
+      <pre>Before:
+S → A | B
+A → a
+B → b
+
+After:
+S → a | b
+A → a
+B → b</pre>
+    </article>
+
+    <article class="ex-card">
+      <h3>Example C · Both</h3>
+      <pre>Before:
+S → A B | ε
+A → B
+B → b | ε
+
+After:
+S → A B | A | B | b
+A → b
+B → b</pre>
+    </article>
+  </section>
+</main>
+
+<footer class="foot">
+  <span>CFG Simplifier · TOC Micro Project</span>
+  <span>Built with vanilla HTML / CSS / JS</span>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>
